@@ -21,7 +21,7 @@ meandiffs<-abs(Means2011-Means2016)
 SDdiffs<-abs(SDs2011-SDs2016)
 
 # simulate random normal data for each datapoint in 2016 study using mean/SD from 2011
-nsims<-10000
+nsims<-100
 myprobm<-c(NA,NA,NA) #initialise vector for probabilities for mean similarity
 myprobs<-myprobm #and vector for probabilities for SD similarity
 thiscor<-myprobm
@@ -45,11 +45,12 @@ for (i in 1:3){
   myprobm[i]<-mycountm/nsims
   myprobs[i]<-mycounts/nsims
   myc<-cor.test(totsim[,1],totsim[,2])
-  thiscor[i]<-myc$estimate
+  thiscor[i]<-myc$estimate #check whether mean and SD are correlated (they aren't)
 }
-allprobmeans<-myprobm[1]*myprobm[2]*myprobm[3]
-allprobSDs<-myprobs[1]*myprobs[2]*myprobs[3]
 
-overallprob<-allprobmeans*allprobSDs
+#Stouffer function from Uri Simonsohn
+stouffer=function(pp)  sum(qnorm(pp),na.rm=TRUE)/sqrt(sum(!is.na(pp)))
+
+overallprob<-pnorm(stouffer(c(myprobm,myprobs)))
 paste('Overall probability of the data:', overallprob)
-paste('This degree of agreement would be seen in one in',comma(round(1000/overallprob,0)),'experiments')
+paste('This degree of agreement would be seen in one in',comma(round(1/overallprob,0)),'experiments')
