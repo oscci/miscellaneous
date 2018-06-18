@@ -1,0 +1,147 @@
+---
+title: 'Reproducing results of Otte et al: version 2'
+author: "DVM Bishop"
+date: "18/06/2018"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(yarrr) #pirateplot
+require(lme4)
+require(pwr)
+require(tidyverse)
+```
+
+ 
+Otte, W. M., Tijdink, J. K., Weerheim, P. L., Lamberink, H. J., & Vinkers, C. (2018). Adequate statistical power in clinical trials is associated with the combination of a male first author and a female last author. eLife, 7, e34412. doi:10.7554/eLife.34412
+
+Paper is here: https://elifesciences.org/articles/34412
+
+Data file retrieved from: https://osf.io/23g3y/ 
+
+Focusing on two issues:
+
+1. Unable to recreate mean rates of adequate power as reported in paper.
+
+2. Within a meta-analysis, power should be linearly releated to N, since the same effect size is used. This does not seem to be the case, suggesting something wrong with power calculations.
+
+I am using the file 'power_with_gender_data.csv'
+
+##1. Computing stats for power by gender combination
+
+```{r readfile, include=FALSE}
+mydir <- "~/Dropbox/!reanalyses_simulations/otte gender power/"
+myfile <- paste0(mydir,'power_with_gender_data.csv')
+mydat <- read.csv(myfile)
+norigrow <-nrow(mydat)
+str(mydat) #check variables
+head(mydat)
+```
+
+Scrutiny of file indicates far more rows than studies. It looks as if there is a row for each study x topic combination.
+
+Tag appears to refer to the meta-analysis that the study came from.
+
+Power is presumably the computed power that is used for the analyses in the paper.
+
+Effect_measure specifies the type of effect size (e.g. odds ratio, standardized mean difference, relative risk)
+
+Study_effect_size is the effect size obtained in that study - so this is *not* used for computing power.
+
+I cannot find a column corresponding to study but can create one that will be accurate unless the same author combination has more than one study in a meta-analysis in the same year
+
+
+
+```{r createvars}
+#create variable that is compound of gendercat for first and last
+mydat$genders <- as.factor(paste0(mydat$first_author_gender,'.',mydat$last_author_gender))
+
+#For studyID, create new factor based on all of these
+
+mydat$studyID<- as.factor(paste0(mydat$tag,'.',mydat$first_author_surname,'.',mydat$last_author_surname,'.',mydat$study_year))
+
+#Since studies are repeated, remove duplicates
+mydatshort <- mydat[!duplicated(mydat$studyID),] #retain rows with unique studyID
+nshortrow <- nrow(mydatshort)
+#str(mydatshort) 
+
+```
+
+Now look at distribution of power by gender. Pirateplot shows distributions.
+
+```{r inspectdata}
+
+pirateplot(power~genders,data=mydatshort)
+
+
+```
+
+
+Check against analysis in eLife.
+
+The number for tagcode is in same ballpark as the N trials reported in the paper, i.e. 31,873. Presumably difference reflects removal of studies where meta-analysis did not achieve overall signficant effect: need to have the ID of these  meta-analyses to reproduce this. 
+
+First thing reported is N with power > 80%. Let's check that.
+
+```{r binarise.power}
+mydatshort$highpower <- 0
+w<-which(mydatshort$power>.8)
+mydatshort$highpower[w] <- 1
+
+
+hipower.tab <- table(mydatshort$genders,mydatshort$highpower)
+colnames(hipower.tab)<-c('Low power','High power')
+prop.table(hipower.tab, 1) # row percentages 
+```
+
+Hmm. This does not agree with figures reported in the paper.
+What is wrong?
+Do figures make sense if repeated data from same paper are included?
+
+```{r binarise.power2}
+mydat$highpower <- 0
+w<-which(mydat$power>.8)
+mydat$highpower[w] <- 1
+
+hipower.tab2 <- table(mydat$genders,mydat$highpower)
+colnames(hipower.tab2)<-c('Low power','High power')
+
+prop.table(hipower.tab2, 1) # row percentages 
+```
+
+No. Still don't get anywhere close to 20% in the male-female pairings. And the percentages in the other categories are also low relative to those reported, regardless of whether the full dataset is included or not.
+
+##2. Relationship between power and sampleN
+Eyeballing the raw data suggests another problem: the values in the power column seem odd: some studies with very large N have low power; others with small N have high power.
+
+First check what is the correlation between power and N.
+```{r checkpower}
+plot(log(mydatshort$sample_size_per_group),mydatshort$power)
+rpow <- cor(mydatshort$sample,mydatshort$power,method='spearman')
+print(paste('Correlation between sample size and power = ',rpow))
+```
+
+This seems odd. N won't determine power completely, because power depends on effect size, and this varies from meta-analysis to meta-analysis. But within a meta-analysis, would expect linear relationship between power and N.
+
+So let's inspect the association for the first few metaanalyses.
+
+```{r spotcheck}
+par(mfrow=c(2,2))
+taglist <- levels(mydatshort$tag)
+for (i in 1:10){
+  w <- which(mydatshort$tag==taglist[i])
+  if(length(w)>8){
+    tempdat<-mydatshort[w,6:7]
+    plot(tempdat, main=taglist[i])
+  }
+}
+```
+
+This suggests something went wrong with the power calcuation.
+
+To reproduce power calculation need to have a column with the effect size that corresponds to each tag. Then would be possible to use pwr to compute given effect size, N and effect_measure. Because effect size for meta-analyses is missing, this is not possible.
+
