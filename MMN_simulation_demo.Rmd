@@ -1,0 +1,254 @@
+---
+title: "Demonstration of bias caused by double dipping in ERP research"
+author: "DVM Bishop"
+date: "27th June 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Demonstration 1: peak-picking
+
+Peak-picking is when a waveform is scrutinised for a peak, and the peak value is used in an analysis. This is a particular (and well-known) problem if the goal is to demonstrate that the component is present, i.e. if the peak values are then compared statistically to zero. It virtually guarantees a significant result on one-sample t-test, because any noise that pushes the signal to be more extreme is included with the true signal.
+
+This is best illustrated with the situation when there is no signal - the waveform is just flat.
+
+You can't simulate ERPs just as a set of random numbers, because for a realistic waveform you need autocorrelation - i.e. each datapoint depends on the previous datapoint. The higher the autocorrelation, the smoother the waveform will be. In my experience, ERP waveforms typically have autocorrelation values of .8 or more - though this depends on the sampling rate. The higher the sampling rate, the closer together the points, and the higher the autocorrelation.
+
+Here I've simulated data by just starting a series of numbers with zero, and then for each subsequent I generate a random number (a normal deviate, which can be positive or negative). The simulated data is then a weighted sum of the previous datapoint and the random number. The weighting for these two sum to one.
+
+The simulation is complicated by the fact that I want to allow for the possibility that there will be part of the waveform where there is a real effect. I'm simulating mismatch negativity, so when there is a real effect, there will be a dip down in the signal. To include this, I first specify 3 phases: for the first and last phase, the true signal is a straight line, for the middle phase, there is a MMN. Then for simulating datapoints in the middle phase, the true signal is added to the weighted sum. We multiply the true signal effect by a weight that will determine how big the impact of the true signal is relative to background noise. If we want to simulate the situation with no true effect, we can just set that weight to zero.
+
+```{r maketruewave}
+#Simplified waveform: baseline is flat, then downward blip then flat again
+pngplot <- 0 #if you toggle this value to 1, graphs will be created as png rather than on screen
+
+myt <- seq(0,400,4) #vector of times for the epoch; 0 to 400 in steps of 4 ms
+
+phase1t <-c(0,160) #time range for phase 1 - flat signal
+phase1r<-which(myt<phase1t[2]) #r gives range of indices of time vector for this phase
+phase1v <-rep(0,length(phase1r)) #v gives amplitudes for true signal in this phase - all zero
+
+phase2t <-c(161,316) #this phase has inverted U 
+w3<-max(which(myt<phase2t[1]))
+w4<-max(which(myt<phase2t[2]))
+phase2r <- w3:w4 #r gives range of indices of time vector for phase 2
+phase2v <- sin(myt[phase2r]/50)/5 #amplitudes for phase 2: should be possible to do this in a 
+#more elegant way: these values are just hand-crafted so that for these timings we get a nice U-function
+
+phase3t <-c(316,400) #back to flat line after the U-function
+w5<-max(which(myt<phase3t[1]))
+w6<-max(which(myt<phase3t[2]))
+phase3r <-w5:w6
+phase3v <-rep(0,length(w5:w6))
+
+#Now create x and y vectors for plotting
+alltime <-myt[c(phase1r,phase2r,phase3r)]
+truecurve <- c(phase1v,phase2v,phase3v)
+
+if(pngplot==1){
+  png("trueMMN.png") 
+}
+plot(alltime,truecurve,type='n',ylim=c(-.4,.4),main='True MMN with no error') #create frame to plot lines in 
+lines(alltime,truecurve,col='blue') #add the lines
+
+if(pngplot==1){
+  dev.off() #turn off printing to png
+}
+```
+Now we make a function that generates simulated waveforms based on this true function (truecurve).
+Each datapoint is generated as a weighted sum of:
+* The previous datapoint
+* Random noise
+* The true curve
+
+Two weights are specified: wt1 is used for previous datapoint, and (1-wt1) is weighting for the random noise. wt2 is weighting for true curve: if this is zero, then we have a flat line; if it is high, then we see the effect of the true curve clearly.
+
+The next chunk of code defines the function for generating this. This does not generate any output but it is used by other code chunks.
+
+```{r definition makewave}
+mymakewave <- function(timepts,wt1,wt2,truecurve) {
+  mywavevec<-rep(0,timepts) #start at zero
+  for (j in 2:timepts){ 
+    
+    #work out next timepoint on basis of previous timepoint, randomness plus true curve
+    mywavevec[j]<-wt1*mywavevec[j-1]+(1-wt1)*rnorm(1)+wt2*truecurve[j]
+  }
+  return(mywavevec)
+}
+```
+
+This next chunk of code can be run to test how mymakewave works. N.B. If you want to run  testmakewave, you need first to run the previous makewave definition chunk.
+
+
+
+```{r testmakewave}
+wt1 <-.9 #specifies autocorrelation between pts - ie noisiness of waveform
+wt2 <-.9 #specifies weighting for true effect - zero will give flat line
+timepts <- length(alltime)
+mywavevec <- mymakewave(timepts,wt1,wt2,truecurve)
+plot(alltime,mywavevec,type='n', main=paste('One simulated epoch: wt1 = ',wt1,': wt2 = ',wt2))
+lines(alltime,mywavevec)
+```
+We will now simulate data for a set of subjects; for each subject, we simulate a given number of trials and then take the average waveform. 
+
+```{r makedata}
+
+nsub<-16 #can alter this number, but it needs to be an even number
+
+
+ntrials <- 30  #N trials to simulate: results saved in myresults for each run
+
+
+#Next we set up a dataframe to hold the averaged ERP for each subject: each row is one timepoint, and there a column for each subject
+subresults<-data.frame(matrix(NA,nrow=length(alltime),ncol=nsub+1))
+subresults[,1]<-alltime #column 1 has the time values
+
+#Another dataframe stores the MMN values for each subject
+#We will compare how results vary depending on how this is computed: whether peak or average
+allmmn<-data.frame(matrix(NA,nrow=nsub,ncol=3))
+
+png("subs.png") #This plot too big for plot pane, so write to png: 4 x 4 grid of plots 
+par(mfrow=c(4,4), mai = c(.5, 0.1, 0.1, 0.1)) #mai avoids big white spaces between plots
+
+for (k in 1:nsub){
+  plot(alltime,truecurve,type='n',ylim=c(-1,.6)) #just creates empty plot: we will add lines later
+  
+  myresults <- data.frame(matrix(NA,nrow=timepts,ncol=ntrials))#temporary store: overwritten for each subject
+  
+  wt1 <- .8 #weight that determines correlation between adjacent timepoints
+  wt2 <- 0 #we start by simulating case where there is no true signal
+  
+  for (i in 1:ntrials){
+    myresults[,i] <- mymakewave(timepts,wt1,wt2,truecurve)
+    lines(alltime,myresults[,i],col='grey') #plot waveform for this trial: these all superimposed
+  }
+  
+  #Now compute average across all trials
+  mmnphase<-phase2r
+  mmnavg<-rowMeans(myresults[,1:ntrials])
+  subresults[,(k+1)] <-mmnavg #store the average waveform for this subject; time in row, mean amplitude in columns
+  lines(alltime,mmnavg,col='blue') #add the average to plot for this subject
+  thismmn<- min(mmnavg[mmnphase]) #find minimum value within the time window for MMN
+  w<-which(mmnavg==thismmn) #find the corresponding index for this value
+  abline(v=alltime[w],col='red') #draw vertical red line to show the peak value
+  abline(v=alltime[w3],lty=2) #draw vertical dotted lines to show the window
+  abline(v=alltime[w4],lty=2)
+  allmmn[k,1]<-alltime[w] #record peak latency in col1 of allmmn
+  allmmn[k,2]<-thismmn #record peak value in col2 of allmmn
+  allmmn[k,3]<-mean(mmnavg[w3:w4]) #record mean amplitude in MMN window in col3  of allmmn
+}
+colnames(allmmn)<-c('Latency','Peak','Meanamp')
+dev.off() #stop writing plots to png
+```
+
+Now look at values for MMN and test if they differ from zero.
+
+```{r do.ttest}
+t.test(allmmn$Peak) #single sample t.test against mean of zero, peak amplitude
+t.test(allmmn$Meanamp) #single sample t.test against mean of zero, mean amplitude
+
+```
+
+You should be able to see the impact of double-dipping: it makes a nonsense of the statistical test, because the data have been selected to be extreme.
+
+##Demonstration 2: electrode picking
+
+In this demonstration, we will simulate data for 6 electrodes for each subject, and we will divide subjects into 2 groups. The aim is to show how statistics get distorted if you decide to base the analysis on the electrode that shows the biggest group difference: this will increase the odds of finding a false positive.
+
+Within a subject, signals from different electrodes tend to be correlated; we will model this by simulating one function per subject, but then adding noise to this for each simulated electrode. For simplicity we will use values of truecurve etc as in demonstration 1.
+
+
+```{r definition makemanywaves}
+makemanywaves <- function(timepts,wt1,wt2,wt3,truecurve,nelec) {
+  #wt3 is weight for additional random term: if this is low, then all waveforms will be similar
+  mywavedf<-data.frame(matrix(0,nrow=timepts,ncol=nelec)) #initialise dataframe
+  for (j in 2:timepts){ 
+    for (e in 1:nelec){
+      
+      #work out next timepoint on basis of previous timepoint, randomness plus true curve
+      mywavedf[j,e]<-wt1*mywavedf[j-1,e]+(1-wt1)*rnorm(1)+wt2*truecurve[j]+wt3*rnorm(1)
+    }
+  }
+  return(mywavedf)
+  
+}
+
+```
+
+```{r test.manywaves}
+
+wt1 <- .8
+wt2 <- .8
+wt3 <- .1
+nelec=4
+
+mywavedf <- makemanywaves(timepts,wt1,wt2,wt3,truecurve,nelec)
+thise<-mywavedf[,1]
+plot(alltime,thise,type='n')
+for (e in 1:nelec){
+  thise<-mywavedf[,e]
+  lines(alltime,thise,col=e)
+}
+```
+
+Now we will use this function to generate 6 electrode values for each of our subjects. Subjects, who don't actually differ, will be subdivided into 2 groups and the grand average waveforms will be plotted.
+
+
+```{r demo2}
+#Specify the range of indices for group1 and group2, equal sized groups
+subrange1<-1:(nsub/2)
+subrange2<-(1+nsub/2):nsub
+
+nelec=6
+
+#Create a 3D array to hold data : time x subject x electrode
+datamatrix <- array(0,dim=c(timepts,nsub,nelec))
+
+#Populate the matrix - to simplify, rather than simulating individual trials and averaging, we will assume the simulated data is an averaged value. We'll specify a high value for wt1 and wt2, which will mean the waves include a true effect and are not so noisy.
+
+wt1 <- .9 #term that influences noisiness of waveform
+wt2 <- .5 #term that affects SNR - i.e. ability to detect true waveform influence
+wt3 <- .1 #term that influences similarity between electrodes
+
+
+for (k in 1:nsub){
+  mywavedf <- makemanywaves(timepts,wt1,wt2,wt3,truecurve,nelec)
+  datamatrix[,k,]<-as.matrix(mywavedf)
+}
+
+#now inspect waveforms for group1 and group2 for each electrode
+par(mfrow=c(2,3)) #plots in a 2 x 3 grid
+ for (e in 1:nelec){
+   plot(alltime,rowMeans(datamatrix[,subrange1,e]),type='l',main=paste('Electrode',e))
+   lines(alltime,rowMeans(datamatrix[,subrange2,e]),col=2)
+ }
+
+```
+
+The two groups - which are entirely arbitrarily assigned -  correspond to the black and red lines. 
+
+You can see that even with weights specified to give relatively clean data, there is variation from electrode to electrode in the group difference.
+
+Next we will compute the average in the MMN window for each subject at each electrode
+
+```{r makeavgmmn,echo=TRUE}
+elecdf <- data.frame(matrix(0,nrow=nsub,ncol=nelec))
+for (k in 1:nsub){
+  for (e in 1:nelec){
+    elecdf[k,e]<-mean(datamatrix[mmnphase,k,e])
+  }
+}
+elecdf$group <-1
+elecdf$group[subrange2]<-2
+
+for (e in 1:nelec){
+  
+ myt<- t.test(elecdf[,e]~elecdf$group)
+ print(paste('Electrode ' ,e))
+  print(myt)
+}
+```
+
