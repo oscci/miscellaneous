@@ -49,7 +49,7 @@ alltime <-myt[c(phase1r,phase2r,phase3r)]
 truecurve <- c(phase1v,phase2v,phase3v)
 
 if(pngplot==1){
-  png("trueMMN.png") 
+  png("trueMMN.png",width = 4, height = 4, units = 'in', res = 300) 
 }
 plot(alltime,truecurve,type='n',ylim=c(-.4,.4),main='True MMN with no error') #create frame to plot lines in 
 lines(alltime,truecurve,col='blue') #add the lines
@@ -110,7 +110,8 @@ subresults[,1]<-alltime #column 1 has the time values
 #We will compare how results vary depending on how this is computed: whether peak or average
 allmmn<-data.frame(matrix(NA,nrow=nsub,ncol=3))
 
-png("subs.png") #This plot too big for plot pane, so write to png: 4 x 4 grid of plots 
+png("subs.png",width = 4, height = 4, units = 'in', res = 300) 
+#This plot too big for plot pane, so write to png: 4 x 4 grid of plots 
 par(mfrow=c(4,4), mai = c(.5, 0.1, 0.1, 0.1)) #mai avoids big white spaces between plots
 
 for (k in 1:nsub){
@@ -210,27 +211,16 @@ datamatrix <- array(0,dim=c(timepts,nsub,nelec))
 #Populate the matrix - to simplify, rather than simulating individual trials and averaging, we will assume the simulated data is an averaged value. We'll specify a high value for wt1 and wt2, which will mean the waves include a true effect and are not so noisy.
 
 wt1 <- .9 #term that influences noisiness of waveform
-wt2 <- .5 #term that affects SNR - i.e. ability to detect true waveform influence
+wt2 <- .4 #term that affects SNR - i.e. ability to detect true waveform influence
 wt3 <- .1 #term that influences similarity between electrodes
-
 
 for (k in 1:nsub){
   mywavedf <- makemanywaves(timepts,wt1,wt2,wt3,truecurve,nelec)
   datamatrix[,k,]<-as.matrix(mywavedf)
 }
-
-#now inspect waveforms for group1 and group2 for each electrode
-par(mfrow=c(2,3)) #plots in a 2 x 3 grid
- for (e in 1:nelec){
-   plot(alltime,rowMeans(datamatrix[,subrange1,e]),type='l',main=paste('Electrode',e))
-   lines(alltime,rowMeans(datamatrix[,subrange2,e]),col=2)
- }
-
 ```
 
-The two groups - which are entirely arbitrarily assigned -  correspond to the black and red lines. 
 
-You can see that even with weights specified to give relatively clean data, there is variation from electrode to electrode in the group difference.
 
 Next we will compute the average in the MMN window for each subject at each electrode
 
@@ -241,14 +231,29 @@ for (k in 1:nsub){
     elecdf[k,e]<-mean(datamatrix[mmnphase,k,e])
   }
 }
+
+#now inspect waveforms for group1 and group2 for each electrode
+png("elecplots.png", width = 6.5, height = 4, units = 'in', res = 300) #write plot to png file
+
+par(mfrow=c(2,3)) #plots in a 2 x 3 grid
 elecdf$group <-1
 elecdf$group[subrange2]<-2
 
-for (e in 1:nelec){
-  
- myt<- t.test(elecdf[,e]~elecdf$group)
- print(paste('Electrode ' ,e))
-  print(myt)
-}
-```
+ for (e in 1:nelec){
+   plot(alltime,rowMeans(datamatrix[,subrange1,e]),type='l',main=paste('Electrode',e),
+        ylim=c(-1,.2),ylab='Amplitude')
+   lines(alltime,rowMeans(datamatrix[,subrange2,e]),col=2)
+    myt<- t.test(elecdf[,e]~elecdf$group)
+   text(90,-.7,paste0('t(',round(myt$parameter,1),')= ',round(myt$statistic,2)),cex=.8)
+   text(80,-.9,paste('p = ',round(myt$p.value,3)),cex=.8)
+   abline(v=alltime[mmnphase[1]],lty=2)
+   abline(v=alltime[max(mmnphase)],lty=2)
+ }
 
+dev.off()
+```
+![Simulated electrodes](elecplots.png)
+
+The two groups - which are entirely arbitrarily assigned -  correspond to the black and red lines. 
+
+You can see that even with weights specified to give relatively clean data, there is variation from electrode to electrode in the group difference.
