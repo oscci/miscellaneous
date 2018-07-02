@@ -1,27 +1,29 @@
 ---
 title: "Demonstration of bias caused by double dipping in ERP research"
 author: "DVM Bishop"
-date: "27th June 2018"
+date: "1st July 2018"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+require(MASS) #for generating multivariate random numbers with mvrnorm (demo 3)
+require(lme4) #for computing repeated measures ANOVA (demo 3)
 ```
 
 ## Demonstration 1: peak-picking
 
-Peak-picking is when a waveform is scrutinised for a peak, and the peak value is used in an analysis. This is a particular (and well-known) problem if the goal is to demonstrate that the component is present, i.e. if the peak values are then compared statistically to zero. It virtually guarantees a significant result on one-sample t-test, because any noise that pushes the signal to be more extreme is included with the true signal.
+Peak-picking is when a waveform is scrutinised for a peak, and the peak value is used in an analysis. This is a particular (and well-known) problem if the goal is to demonstrate that the component is present, i.e. if the peak values are then compared statistically to zero. It virtually guarantees a significant result on one-sample t-test, because any noise that pushes the signal in one direction is included with the true signal.
 
 This is best illustrated with the situation when there is no signal - the waveform is just flat.
 
 You can't simulate ERPs just as a set of random numbers, because for a realistic waveform you need autocorrelation - i.e. each datapoint depends on the previous datapoint. The higher the autocorrelation, the smoother the waveform will be. In my experience, ERP waveforms typically have autocorrelation values of .8 or more - though this depends on the sampling rate. The higher the sampling rate, the closer together the points, and the higher the autocorrelation.
 
-Here I've simulated data by just starting a series of numbers with zero, and then for each subsequent I generate a random number (a normal deviate, which can be positive or negative). The simulated data is then a weighted sum of the previous datapoint and the random number. The weighting for these two sum to one.
+Here I use a very simple approach to simulating a waveform. The series starts with zero, and then for each subsequent datapoint I generate a random number (a normal deviate, which can be positive or negative). The simulated data is then a weighted sum of the previous datapoint and the random number. The two weights sum to one, so in effect, if you want a noisier waveform you just decrease the weight for the previous datapoint.
 
-The simulation is complicated by the fact that I want to allow for the possibility that there will be part of the waveform where there is a real effect. I'm simulating mismatch negativity, so when there is a real effect, there will be a dip down in the signal. To include this, I first specify 3 phases: for the first and last phase, the true signal is a straight line, for the middle phase, there is a MMN. Then for simulating datapoints in the middle phase, the true signal is added to the weighted sum. We multiply the true signal effect by a weight that will determine how big the impact of the true signal is relative to background noise. If we want to simulate the situation with no true effect, we can just set that weight to zero.
+The simulation is complicated by the fact that I want to allow for the possibility that there will be part of the waveform where there is a real effect. I'm simulating the difference wave called mismatch negativity, so when there is a real effect, there will be a dip down in the signal. To include this, I first specify 3 phases: for the first and last phase, the true signal is a straight line, for the middle phase, there is a MMN. Then for simulating datapoints in the middle phase, the true signal is added to the weighted sum. We multiply the true signal effect by a weight that will determine how big the impact of the true signal is relative to background noise. If we want to simulate the situation with no true effect, we can just set that weight to zero.
 
-```{r maketruewave}
+```{r maketruewave, echo=TRUE}
 #Simplified waveform: baseline is flat, then downward blip then flat again
 pngplot <- 0 #if you toggle this value to 1, graphs will be created as png rather than on screen
 
@@ -31,7 +33,7 @@ phase1t <-c(0,160) #time range for phase 1 - flat signal
 phase1r<-which(myt<phase1t[2]) #r gives range of indices of time vector for this phase
 phase1v <-rep(0,length(phase1r)) #v gives amplitudes for true signal in this phase - all zero
 
-phase2t <-c(161,316) #this phase has inverted U 
+phase2t <-c(161,316) #time range for phase with U function
 w3<-max(which(myt<phase2t[1]))
 w4<-max(which(myt<phase2t[2]))
 phase2r <- w3:w4 #r gives range of indices of time vector for phase 2
@@ -51,7 +53,8 @@ truecurve <- c(phase1v,phase2v,phase3v)
 if(pngplot==1){
   png("trueMMN.png",width = 4, height = 4, units = 'in', res = 300) 
 }
-plot(alltime,truecurve,type='n',ylim=c(-.4,.4),main='True MMN with no error') #create frame to plot lines in 
+plot(alltime,truecurve,type='n',ylim=c(-.4,.4),main='True MMN with no error (truecurve)å',
+     ylab = 'Amplitdue',xlab='Time (ms)') #create frame to plot lines in 
 lines(alltime,truecurve,col='blue') #add the lines
 
 if(pngplot==1){
@@ -64,11 +67,11 @@ Each datapoint is generated as a weighted sum of:
 * Random noise
 * The true curve
 
-Two weights are specified: wt1 is used for previous datapoint, and (1-wt1) is weighting for the random noise. wt2 is weighting for true curve: if this is zero, then we have a flat line; if it is high, then we see the effect of the true curve clearly.
+Two weights are specified: wt1 is used for previous datapoint, and (1-wt1) is weighting for the random noise. These sum to 1. wt2 is weighting for true curve: if this is zero, then we have a flat line; if it is high, then we see the effect of the true curve clearly.
 
 The next chunk of code defines the function for generating this. This does not generate any output but it is used by other code chunks.
 
-```{r definition makewave}
+```{r definition makewave echo=TRUE}
 mymakewave <- function(timepts,wt1,wt2,truecurve) {
   mywavevec<-rep(0,timepts) #start at zero
   for (j in 2:timepts){ 
@@ -84,7 +87,7 @@ This next chunk of code can be run to test how mymakewave works. N.B. If you wan
 
 
 
-```{r testmakewave}
+```{r testmakewave, echo=TRUE}
 wt1 <-.9 #specifies autocorrelation between pts - ie noisiness of waveform
 wt2 <-.9 #specifies weighting for true effect - zero will give flat line
 timepts <- length(alltime)
@@ -101,18 +104,17 @@ nsub<-16 #can alter this number, but it needs to be an even number
 
 ntrials <- 30  #N trials to simulate: results saved in myresults for each run
 
-
-#Next we set up a dataframe to hold the averaged ERP for each subject: each row is one timepoint, and there a column for each subject
+#Next we initialise a dataframe to hold the averaged ERP for each subject: each row is one timepoint, and there's a column for each subject
 subresults<-data.frame(matrix(NA,nrow=length(alltime),ncol=nsub+1))
 subresults[,1]<-alltime #column 1 has the time values
 
-#Another dataframe stores the MMN values for each subject
+#Another dataframe is initialised to store the MMN values for each subject
 #We will compare how results vary depending on how this is computed: whether peak or average
 allmmn<-data.frame(matrix(NA,nrow=nsub,ncol=3))
 
 png("subs.png",width = 4, height = 4, units = 'in', res = 300) 
 #This plot too big for plot pane, so write to png: 4 x 4 grid of plots 
-par(mfrow=c(4,4), mai = c(.5, 0.1, 0.1, 0.1)) #mai avoids big white spaces between plots
+par(mfrow=c(4,4), mai = c(.5, 0.1, 0.1, 0.1)) #mai sets margns to avoid big white spaces between plots
 
 for (k in 1:nsub){
   plot(alltime,truecurve,type='n',ylim=c(-1,.6)) #just creates empty plot: we will add lines later
@@ -147,19 +149,19 @@ dev.off() #stop writing plots to png
 
 Now look at values for MMN and test if they differ from zero.
 
-```{r do.ttest}
+```{r do.ttest echo=TRUE}
 t.test(allmmn$Peak) #single sample t.test against mean of zero, peak amplitude
 t.test(allmmn$Meanamp) #single sample t.test against mean of zero, mean amplitude
 
 ```
 
-You should be able to see the impact of double-dipping: it makes a nonsense of the statistical test, because the data have been selected to be extreme.
+You should be able to see the impact of double-dipping: it makes a nonsense of the statistical test, because the data have been selected to be extreme. If you were to rely on this method to tell whether or not you had an MMN, you would be fooling yourself.
 
 ##Demonstration 2: electrode picking
 
 In this demonstration, we will simulate data for 6 electrodes for each subject, and we will divide subjects into 2 groups. The aim is to show how statistics get distorted if you decide to base the analysis on the electrode that shows the biggest group difference: this will increase the odds of finding a false positive.
 
-Within a subject, signals from different electrodes tend to be correlated; we will model this by simulating one function per subject, but then adding noise to this for each simulated electrode. For simplicity we will use values of truecurve etc as in demonstration 1.
+Within a subject, signals from different electrodes tend to be correlated; we will model this by simulating one function per subject, but then adding noise to this for each simulated electrode. For simplicity we will use values of truecurve etc as in demonstration 1, and we won't simulate individual trials and then average them. (This means that to be realisitc we should simulate data that is not so noisy, as averaging over trials reduces noise). 
 
 
 ```{r definition makemanywaves}
@@ -167,10 +169,12 @@ makemanywaves <- function(timepts,wt1,wt2,wt3,truecurve,nelec) {
   #wt3 is weight for additional random term: if this is low, then all waveforms will be similar
   mywavedf<-data.frame(matrix(0,nrow=timepts,ncol=nelec)) #initialise dataframe
   for (j in 2:timepts){ 
+    electerm <-rnorm(1) #a random term for electrode: keep same for all electrodes for this subject
+    #so we can generate correlated data
     for (e in 1:nelec){
       
       #work out next timepoint on basis of previous timepoint, randomness plus true curve
-      mywavedf[j,e]<-wt1*mywavedf[j-1,e]+(1-wt1)*rnorm(1)+wt2*truecurve[j]+wt3*rnorm(1)
+      mywavedf[j,e]<-wt1*mywavedf[j-1,e]+(1-wt1)*rnorm(1)+wt2*truecurve[j]+wt3*electerm
     }
   }
   return(mywavedf)
@@ -178,6 +182,8 @@ makemanywaves <- function(timepts,wt1,wt2,wt3,truecurve,nelec) {
 }
 
 ```
+
+We plot data from 4 electrodes just to check whether the simulation is giving realistic data.
 
 ```{r test.manywaves}
 
@@ -195,7 +201,7 @@ for (e in 1:nelec){
 }
 ```
 
-Now we will use this function to generate 6 electrode values for each of our subjects. Subjects, who don't actually differ, will be subdivided into 2 groups and the grand average waveforms will be plotted.
+Now we will use this function to generate 6 electrode values for each of our subjects. Subjects, who don't actually differ, will be subdivided into 2 groups and the grand average waveforms will be plotted. It we use p < .05 as a criterion for significance, we should not see a significant result on more than 1 in 20 runs of the simulation.
 
 
 ```{r demo2}
@@ -257,3 +263,117 @@ dev.off()
 The two groups - which are entirely arbitrarily assigned -  correspond to the black and red lines. 
 
 You can see that even with weights specified to give relatively clean data, there is variation from electrode to electrode in the group difference.
+
+The more electrodes that are simulated, the higher the probability that at least one electrode will show a 'significant' group difference. The proportion of 'significant' effects will depend on the extent to which the electrode values are intercorrelated.
+
+
+##Demonstration 3: False positives in exploratory multiway ANOVA
+EEG studies often use multiway ANOVA to explore effects associated with group, condition, time window, electrode, laterality, etc.
+
+It is seldom appreciated that ANOVA does not automatically correct p-values to account for the number of factors and interactions between factors. This misunderstanding may reflect the fact the ANOVA does correct for the number of levels of a factor: thus if you have a factor called 'electrode' significance will be correctly computed regardless of whether there are 2, 4, 8, 16 or more electrodes.
+
+I drew attention to this in a blogpost written in 2013. A more detailed and formal account of the problem was presented by Cramer et al in 2016. 
+
+To illustrate the problem, I will generate a set of random normal deviates which will be arbitrarily assigned to correspond to 2 combinations of levels of each of 3 factors, A, B and C. These can be thought of as average MMN values coded by time window (A), electrode (B) and group (C). The mvrnorm package allows one to generate multivariate numbers specifying the intercorrelation between them. We'll just simulate uncorrelated variables, but you could explore how the simulations are affected if you change this.
+
+```{r makerandABC}
+ 
+ myn <-30 #number of participants
+#need values for A1B1C1,A1B1C2,A1B2C1,A1B2C2
+#                A2B1C1,A2B1C2,A2B2C1,A2B2C2
+ 
+    
+ nvar <- 8 #8 combinations of values  for A, B and C
+ mysigma <- matrix(0,nrow=8,ncol=8) #set up correlation matrix with no association between values
+ diag(mysigma) <- rep(1,8) #ones on the diagonal for covariance matrix
+ #If you want to explore effect of correlations between combinations of conditions, you can do this by changing some of the zeros in mysigma to other values: NB Matrix must be symmetric, so if you change mysigma[1,3] you must set mysigma[3,1] to the same value.
+ 
+ 
+ mydat <-data.frame( mvrnorm(n=myn, rep(0,8),mysigma))
+ mydat <-cbind(1:myn,mydat) #add a column with subject ID
+ colnames(mydat) <-c('ID','A1B1C1','A1B1C2','A1B2C1','A1B2C2','A2B1C1','A2B1C2','A2B2C1','A2B2C2' )
+
+head(mydat)
+ 
+```
+
+We simulated data this way because it maps on to how data are usually set out for ANOVA - and it also give the potential to create values that are intercorrelated. 
+
+But in R it is generally preferable to have data in long form, with just one column with the measured variable, and other columns denoting the conditions.
+
+```{r makelong}
+mydatlong <- data.frame(matrix(0,nrow=myn*nvar,ncol=5))
+colnames(mydatlong) <- c('ID','A','B','C','value')
+myrow <- myn*nvar
+
+mydatlong$ID <-rep(1:myn,nvar)
+mydatlong$A<- c(rep(0,myrow/2),rep(1,myrow/2))
+mydatlong$B <-c(rep(0,myrow/4),rep(1,myrow/4),rep(0,myrow/4),rep(1,myrow/4))
+mydatlong$C <-c(rep(0,myrow/8),rep(1,myrow/8),rep(0,myrow/8),rep(1,myrow/8),
+                rep(0,myrow/8),rep(1,myrow/8),rep(0,myrow/8),rep(1,myrow/8))
+
+mydatlong$value <- c(mydat[,2],mydat[,3],mydat[,4],mydat[,5],mydat[,6],mydat[,7],mydat[,8],mydat[,9])
+
+#The regular ANOVA command, aov, assumes between subjects ANOVA, so does not need subject term
+print('Between subjects ANOVA')
+summary(aov(value ~ A + B + C + A*B*C,data=mydatlong))
+#Linear model is best way to achieve repeated measures - includes subjects as random effect
+print(' ')
+print(' ')
+print('Repeated measure ANOVA')
+summary(lmer(value ~ A + B + C  +A*B*C+ (1|ID),data=mydatlong))
+ 
+ 
+```
+
+Having seen how we can simulate random data for ANOVA, we can now create data to repeatedly run an ANOVA with a fresh set of random numbers each time. We'll do this 1000 times and see how often we get at least one significant p-value. This time we'll go up to a 4 way ANOVA, where there are:
+
+4 main effects
+
+6 two-way interactions: AB, AC, AD, BC, BD, CD
+
+4 three-way interactions: ABC, ABD, ACD, BCD
+
+1 four way interaction: ABCD
+
+So there are 15 main effects and interactions, and the corrected alpha is .05/15 = .0033.
+On a t-test (which is what lmer gives you), the t-value corres
+Given that we need long-form data and we want totally unrelated numbers, we don't need to bother with mvrnorm, but can just go directly to simulate a long form file which has a new set of random numbers on each run.
+
+```{r manysims}
+nsub <- 30
+wrongalpha<-.1
+truealpha<-.1/15
+t1<-qt(1-wrongalpha/2, nsub-2) #t-value for .05
+t2<-qt(1-truealpha/2, nsub-2) #t-value for .05
+nfactor <- 4 #for simplicity we assume 2 levels of each factor.
+nsim <-1000 #N simulations - use small number to test program
+#NB because ANOVA *does* take into account the N levels of each factor, results will be the same if we have more levels.
+
+mynrow <- nsub*nfactor^2
+mydf <- data.frame(matrix(NA,nrow=mynrow,ncol=nfactor+2))
+colnames(mydf)<- c('ID','A','B','C','D','value')
+mydf$ID<-rep(1:nsub,2^nfactor)
+mydf$A<-c(rep(0,mynrow/2),rep(1,mynrow/2))
+mydf$B<-c(rep(0,mynrow/4),rep(1,mynrow/4),rep(0,mynrow/4),rep(1,mynrow/4))
+mydf$C<-c(rep(0,mynrow/8),rep(1,mynrow/8),rep(0,mynrow/8),rep(1,mynrow/8),rep(0,mynrow/8),rep(1,mynrow/8),rep(0,mynrow/8),rep(1,mynrow/8))
+mydf$D<-c(rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16),rep(0,mynrow/16),rep(1,mynrow/16))
+
+allt<-data.frame(matrix(NA,nrow=nsim,ncol=18))
+for (i in 1:nsim){
+mydf$value <- rnorm(mynrow) #generate values as random normal deviates
+
+isum<-summary(lmer(value ~ A + B + C  +D+A*B*C*D +(1|ID),data=mydf))
+allt[i,1:16]<-round(isum$coefficients[,3],2) #rounded t values
+allt[i,17]<-length(which(allt[i,2:16]>t1))
+allt[i,18]<-length(which(allt[i,2:16]>t2))
+}
+colnames(allt)[1:16]<-rownames(isum$coefficients)
+colnames(allt)[17:18]<-c('p<.05','p<.003')
+print('P low at p < .05 one-tailed')
+sum(allt[,17])/nsim
+print('P low at p < .003 one-tailed')
+sum(allt[,18])/nsim
+```
+
+
