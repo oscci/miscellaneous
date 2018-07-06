@@ -9,6 +9,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+#updated information 6th July 2018 - authors have emailed to say I'm using wrong variables!
 knitr::opts_chunk$set(echo = TRUE)
 require(yarrr) #pirateplot
 require(lme4)
