@@ -90,7 +90,7 @@ if(datadone==1){
    lines(tempbit1$replic.12.N~tempbit1$effsize,lty=3,col=n) 
    
  }
- abline(h=.8,lty=3)
+ abline(h=.8,lty=3) #Horizontal line to show .8 power
  legend("topleft", inset=.05, title="N per group (single)",
         c('24','48','96','192'),lty=1,col=1:4,cex=.8)
  legend("bottomright", inset=.05, title="Significance criterion",
