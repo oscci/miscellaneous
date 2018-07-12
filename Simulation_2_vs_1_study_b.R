@@ -9,7 +9,7 @@ options(scipen=999) #http://stackoverflow.com/questions/25946047/how-to-prevent-
 
 myNs<-c(24,48,96,192) #Total available sample *per group* in single 2 group study
 myES<-c(0,0.2,.4,.6,.8) #effect size for difference between groups (you can try changing this)
-allalpha <-c(.05,.0025)
+allalpha <-c(.05,.005)
 n.effects<-length(myES)
 n.totalsample <- length(myNs)
 n.alpha<-length(allalpha)
