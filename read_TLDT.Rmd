@@ -1,0 +1,351 @@
+---
+title: "Hausmann reanalysis"
+author: "DVM Bishop"
+date: "17/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+ library(ggplot2)
+library(tidyverse)
+library(sjPlot)
+library(tableone)
+```
+
+## R Markdown
+
+Saved worksheets from Christine Mohr /Users/dorothybishop/Dropbox/ERCadvanced/VHF project /hausmann
+MASTER_FILE_LDT_27_February_2016.xlsx
+
+The first worksheet (raw) has col titles repeated in the body of sheet; these now removed
+
+NB Hope also to look at
+https://osf.io/y28hq/ - van der Haegen and Brysbaert in PLOS One.
+There is a data sheet but most files are from eprime.
+
+
+```{r readraw}
+mydat<-read.csv('hausmann/MASTER_FILE_LDT_27_February_2016.csv')
+myraw<-read.csv('hausmann/MASTER_FILE_LDT_raw.csv',stringsAsFactors=FALSE)
+#str(mydat)
+#str(myraw)
+```
+
+## Check signal detection measures
+
+d prime is z(%hit)-z(%FA)
+beta is -.5%(z$hit)+z(%FA)
+
+How are hits and FA computed when there are 3 response options?
+
+The matrix of responses is:
+
+          actual stimulus
+          RVF    LVF   none
+resp RVF   a      b      c
+     LVF   d      e      f
+     none  g      h      i
+     -     j      k      l
+
+ie had to add - for trials with no response
+     
+NB there is a dprime for W (?word) as well as for RVF and LVF
+     
+```{r dodprime}
+#make new cols
+myraw$hitR_db<-NA
+myraw$faRold_db<-NA
+myraw$dprime_R_db<-NA
+myraw$beta_R_db<-NA
+myraw$hitL_db<-NA
+myraw$faLold_db<-NA
+myraw$dprime_L_db<-NA
+myraw$beta_L_db<-NA
+myraw$faR<-NA #my method of computing not agreeing, so try something else - this agrees on R
+myraw$faL<-NA #NB FA rate is same for L and R in original data?
+myraw$hitword<-NA
+myraw$faword<NA
+myraw$dprime_word<-NA
+myraw$myhitRold<-NA
+myraw$myhitLold<-NA
+```
+```{r dprimecompute}
+#Slow and clunky method, row by row, as I am trying to understand it.
+#start by trying to make matrix as above for each subject
+for (i in 1:nrow(myraw)){
+mymat<-matrix(rep(0,12),nrow=4)
+mymat[1,1]<-myraw$Nb_Resp_RVF_Word_RVF[i]
+mymat[1,2]<-myraw$Nb_Resp_RVF_Word_LVF[i]
+mymat[1,3]<-myraw$Nb_Resp_RVF_Word_No[i]
+mymat[2,1]<-myraw$Nb_Resp_LVF_Word_RVF[i]
+mymat[2,2]<-myraw$Nb_Resp_LVF_Word_LVF[i]
+mymat[2,3]<-myraw$Nb_Resp_LVF_Word_No[i]
+mymat[3,1]<-myraw$Nb_Resp_No_Word_RVF[i]
+mymat[3,2]<-myraw$Nb_Resp_No_Word_LVF[i]
+mymat[3,3]<-myraw$Nb_Resp_No_Word_No[i]
+rownames(mymat)<-c('respR','respL','respN','miss')
+colnames(mymat)<-c('stimR','stimL','stimN')
+
+mymat[4,1]<-myraw$Nb_Trials_RVF[i]-sum(mymat[1:3,1])
+mymat[4,2]<-myraw$Nb_Trials_LVF[i]-sum(mymat[1:3,2])
+mymat[4,3]<-myraw$Nb_Trials_NoWord[i]-sum(mymat[1:3,3])
+
+#myhitRold is version used by Hausmann et al - requires response to be correct in terms of Word/Nonword and side
+myhitRold<-mymat[1,1]/(mymat[1,1]+mymat[2,1]+mymat[3,1]+mymat[4,1])
+#myfaRold - this differs from Hausmann et al, because it treats as FA any R response when stimulus was not R (either stimulus L or no word)
+myfaRold<-(mymat[1,2]+mymat[1,3])/(mymat[1,2]+mymat[2,2]+mymat[3,2]+mymat[4,2]+
+                             mymat[1,3]+mymat[2,3]+mymat[3,3]+mymat[4,3]   )
+#I am trying new version which ignores whether the sidedness of response was correct - just picks 'word' responses for stimuli presented on R
+myhitR<-(mymat[1,1]+mymat[2,1])/(mymat[1,1]+mymat[2,1]+mymat[3,1]+mymat[4,1])
+# print('computed hit RVF')
+# myhitR
+# print(myraw$Hit_Rate_RVF[i])
+# print('computed fa RVF')
+# myfaR
+# print(myraw$False_Alarm_Rate_RVF[i])
+#The hit rate is spot on
+#The FA rate is out - not so much as to make a big difference, but still a bit odd
+#Try FA based on whether word/nonword decision is correct, regardless of side
+myfaR2<-(mymat[1,3])/( mymat[1,3]+mymat[2,3]+mymat[3,3]+mymat[4,3]   )
+
+#Now Left visual field
+myhitLold<-mymat[2,2]/(mymat[1,2]+mymat[2,2]+mymat[3,2]+mymat[4,2])
+myfaLold<-(mymat[2,1]+mymat[2,3])/(mymat[1,1]+mymat[2,1]+mymat[3,1]+mymat[4,1]+
+                             mymat[1,3]+mymat[2,3]+mymat[3,3]+mymat[4,3]   )
+myfaL2<-(mymat[2,3])/( mymat[1,3]+mymat[2,3]+mymat[3,3]+mymat[4,3]   )
+myhitL<-(mymat[1,2]+mymat[2,2])/(mymat[1,2]+mymat[2,2]+mymat[3,2]+mymat[4,2])
+
+# print('computed hit LVF')
+# myhitL
+# print(myraw$Hit_Rate_LVF[i])
+# 
+# print('computed fa LVF')
+# myfaL
+# print(myraw$False_Alarm_Rate_LVF[i])
+#Now look at word dprime
+
+#cases where response was word and there was a word, as proportion of all word items
+myraw$hitword[i]<-(mymat[1,1]+mymat[1,2]+mymat[2,1]+mymat[2,2])/
+  (mymat[1,1]+mymat[2,1]+mymat[3,1]+
+     mymat[1,2]+mymat[2,2]+mymat[3,2])
+
+#cases where response was word and there was no word
+myraw$faword[i]<-(mymat[1,3]+mymat[2,3])/(mymat[1,3]+mymat[2,3]+mymat[3,3])
+    
+
+myraw$hitR_db[i]<-myhitR
+myraw$faRold_db[i]<-myfaRold
+myraw$faR_db[i]<-myfaR2
+
+
+myraw$hitL_db[i]<-myhitL
+myraw$faLold_db[i]<-myfaLold
+myraw$faL_db[i]<-myfaL2
+
+}
+plot(myraw$False_Alarm_Rate_RVF,myraw$faR_db) #perfect agreement - ie ignore LVF trials
+plot(myraw$False_Alarm_Rate_LVF,myraw$faL_db) 
+
+plot(myraw$Hit_Rate_W,myraw$hitword) #nearly perfect agreement!
+plot(myraw$False_Alarm_Rate_W,myraw$faword) #nearly perfect agreement!
+
+plot(myraw$hitL_db,myraw$hitR_db)
+```
+
+
+
+
+```{r checkdprime}
+#rule out impossible values
+mycols<-which(colnames(myraw)%in% c('hitR_db','hitL_db','faR_db','faL_db','hitword','faword'))
+for (c in 1:length(mycols))
+{thiscol<-mycols[c]
+w<-which(myraw[,thiscol]==1)
+myraw[w,thiscol]<-.999
+w<-which(myraw[,thiscol]==0)
+myraw[w,thiscol]<-.001
+}
+for (i in 1:nrow(myraw)){
+
+  myraw$dprime_R_db[i]<-qnorm(myraw$hitR_db[i])-qnorm(myraw$faR_db[i])
+  myraw$dprime_L_db[i]<-qnorm(myraw$hitL_db[i])-qnorm(myraw$faL_db[i])
+  myraw$dprime_word[i]<-qnorm(myraw$hitword[i])-qnorm(myraw$faword[i])
+  myraw$beta_R_db[i]<- -.5*(qnorm(myraw$hitR_db[i])+qnorm(myraw$faR_db[i]))
+    myraw$beta_L_db[i]<- -.5*(qnorm(myraw$hitL_db[i])+qnorm(myraw$faL_db[i]))
+}
+plot(myraw$Hit_Rate_RVF,myraw$hitR_db) #perfect agreement
+plot(myraw$Hit_Rate_LVF,myraw$hitL_db)#perfect agreement
+plot(myraw$dprime_word,myraw$dPrime_W) #near perfect agreement
+
+plot(myraw$False_Alarm_Rate_RVF,myraw$faR_db) #correlated but not perfect agreement
+plot(myraw$False_Alarm_Rate_LVF,myraw$faL_db) #v poor agreement
+
+
+plot(myraw$dPrime_RVF,myraw$dprime_R_db)
+plot(myraw$dPrime_LVF,myraw$dprime_L_db)
+
+plot(myraw$cBias_RVF,myraw$beta_R_db)
+plot(myraw$cBias_LVF,myraw$beta_L_db)
+
+myraw$dprime_diff<-myraw$dprime_R_db-myraw$dprime_L_db
+myraw$beta_diff<-myraw$beta_R_db-myraw$beta_L_db
+hist(myraw$dprime_diff)
+mean(myraw$dprime_diff,na.rm=TRUE)
+hist(myraw$beta_diff)
+mean(myraw$beta_diff,na.rm=TRUE)
+
+```
+
+Now look at means by handedness.
+Here just doing a split at EHI zero
+
+```{r handedness}
+hist(myraw$HANDEDNESS)
+myraw$Rhander<-NA
+w<-which(myraw$HANDEDNESS>0)
+myraw$Rhander[w]<-1
+w<-which(myraw$HANDEDNESS<0)
+myraw$Rhander[w]<-0
+
+# aggregate data frame mtcars by cyl and vs, returning means
+# for numeric variables
+
+plot(myraw$HANDEDNESS,myraw$dprime_diff)
+aggdata <-aggregate(myraw$dprime_diff, by=list(myraw$Rhander),
+  FUN=mean, na.rm=TRUE)
+print(aggdata)
+aggdata2 <-aggregate(myraw$beta_diff, by=list(myraw$Rhander),
+  FUN=mean, na.rm=TRUE)
+print(aggdata2)
+
+myraw$diffbasicLI<-(myraw$Nb_Resp_RVF_Word_RVF-myraw$Nb_Resp_LVF_Word_LVF)/
+  (myraw$Nb_Resp_RVF_Word_RVF+myraw$Nb_Resp_LVF_Word_LVF)
+  
+aggdata3 <-aggregate(myraw$diffbasicLI, by=list(myraw$Rhander),
+  FUN=mean, na.rm=TRUE)
+print(aggdata3)
+
+aggdata4 <-aggregate(myraw$dprime_word, by=list(myraw$Rhander),
+  FUN=mean, na.rm=TRUE)
+print(aggdata4)
+
+plot(myraw$dprime_R_db,myraw$dprime_L_db,pch=(2+myraw$Rhander))
+plot(myraw$beta_R_db,myraw$beta_L_db,pch=(2+myraw$Rhander))
+plot(myraw$HANDEDNESS,myraw$diffbasicLI,pch=(2+myraw$Rhander))
+
+myraw$handfactor<-as.factor(myraw$Rhander)
+ggplot(myraw[!is.na(myraw$handfactor),], aes(dprime_diff, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+ggplot(myraw[!is.na(myraw$handfactor),], aes(dprime_R_db, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+ggplot(myraw[!is.na(myraw$handfactor),], aes(dprime_L_db, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+```
+
+```{r resids}
+vhfR.lm = lm(dprime_R_db ~ dprime_word, data=myraw) 
+myraw$vhfR.res =5+ resid(vhfR.lm) 
+vhfL.lm = lm(dprime_L_db ~ dprime_word, data=myraw) 
+myraw$vhfL.res =5+ resid(vhfL.lm) 
+plot(myraw$vhfR.res,myraw$vhfL.res,pch=(2+myraw$Rhander))
+myraw$resLI<-(myraw$vhfR.res-myraw$vhfL.res)/(myraw$vhfR.res+myraw$vhfL.res)
+ggplot(myraw[!is.na(myraw$handfactor),], aes(resLI, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+ggplot(myraw[!is.na(myraw$handfactor),], aes(vhfR.res, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+ggplot(myraw[!is.na(myraw$handfactor),], aes(vhfL.res, group=handfactor, col=handfactor)) + geom_density(position='dodge')
+
+```
+
+So, I have tried various ways of computing dprime-based laterality; none shows any hint of picking up on L vs R hander differences.
+This is somewhat concerning, but remember that:
+a) L handers rather rare in this sample
+b) L handers more likely to be from one centre
+c) I just did a split at zero
+
+The dprime for LVF seems miscomputed because False Alarm rate is same as for RVF.
+
+Not much evidence of reliability for the measure.
+But different samples show a R-bias. However, is this just attentional?
+Also response bias - method lends itself to this.
+
+With raw data, could at least look at split half.
+Has this been done?
+
+# Initial thoughts re Hausmann task:
+Why so many nonword-nonword trials? Would sensitivity be better if 1/3 L, 1/3 R and 1/3 nonword? 
+This would shorten task.
+
+# Ideas for alternative task
+
+Ignoring for now the international aspect of Hausmann et al - which is an attractive feature.
+
+Hunter and Brysbaert comments on optimal task:
+Looking for correlation with gold standard, e.g. fMRI - though this does assume that laterality is a single dimension. Would be interesting to see what happened to brain activation while doing a VHF task.
+Krach et al 2006; fTCD compared with VHF for lexical decision - abstract nouns in L and R VF. 58 healthy right-handed, left-handed, and ambidextrous subjects.
+Either 2 diffrent nouns, or a noun and nonword with arrow at fixation. Measured blood flow during task. Also did hem diffs for word generation.
+Found RVF in VHF task, but they did not correlate with LI in word generation, or even with fTCD LI from task itself.
+"In the lexical decision task, a highly significant right visual field advantage was observed for number of correct responses and reaction times, while at the same time and contrary to expectation the increase of CBFV was significantly higher in the right than left hemisphere. During mental word generation, the acceleration of CBF was significantly higher in the left hemisphere. A comparison between individual LI derived from CBF measurement during mental word generation and from visual field performances in the lexical decision task showed a moderate correspondence in classifying the subjects' HLD."
+
+
+
+
+How about ensuring central fixation by providing a key word stimulus centrally, and requiring judgement of whether a flashed picture had a named that rhymed.
+Gets around problems with reading start or end of word, and reading directional effects.
+This would involve implicit word generation, and so you would expect it to be closer to LI for word generation tasks.
+But still feasible with a keypress response (yes or no for rhyme).
+Indeed, could use Abbie's materials from her rhyme judgement task.
+You could do this with just one stimulus (L or R) per trial, or could incorporate arrow in central stimulus.
+
+
+
+
+![Idea for alternative setup](sample_trials.jpg)
+
+
+
+I am not optimistic that original Hausmann task is going to work - seems to give very variable data, but I will now look to see if I can at least reproduce their findings from the data.
+
+# Redo Hausman analysis
+
+Here I will just attempt to recreate the data summaries from the paper.
+
+```{r readraw}
+mydat<-read.csv('hausmann/MASTER_FILE_LDT_27_February_2016.csv')
+myraw<-read.csv('hausmann/MASTER_FILE_LDT_raw.csv',stringsAsFactors=FALSE)
+#str(mydat)
+#str(myraw)
+```
+
+Use tableone to make table.
+
+```{r maketableone}
+## List numerically coded categorical variables
+factorVars <- c("Language_francaisFocus","SEX")
+## Create a variable list. Use dput(names(pbc))
+vars <- c("AGE","HANDEDNESS")
+tableOne <- CreateTableOne(vars = vars, data = mydat,strata = c("SEX","Language_francaisFocus"), factorVars = factorVars,test=FALSE)
+
+print(tableOne)
+```
+This table is different from the published Table 1. Some differences in Ns, and no Norwegian in the sent data file.
+
+Exclusions:
+'Twenty-eight participants (5.0%) were excluded
+because performance for stimuli presented in their dominant
+VHF was not significantly above chance level'
+
+'We also excluded 27 participants (4.8%) whose performance for stimuli
+presented in the non-dominant VHF (either LVF or RVF) was
+significantly below chance level. The thresholds above/below
+chance were derived based on binomial tests (Bortz, Lienert, &
+Boehnke, 2000).'
+
+Would help if they would just give Ns for cutoff of chance or below chance.
+
+'Seven participants were excluded because
+they reported to have a history of mental disorders. Finally,
+five participants were excluded because their first language
+was underrepresented in our sample and therefore did not
+allow statistical analysis: Albanian (n ¼ 3), Portuguese (n ¼ 1),
+and Turkish (n ¼ 1).'
+
+
+
+
