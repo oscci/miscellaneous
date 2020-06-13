@@ -1,0 +1,107 @@
+---
+title: "Seghier simulation"
+output: html_notebook
+---
+
+This is a notebook script, which means that if you run it, it will generate a html file that combines the text and the code.
+
+Attempt to reproduce what is done in Seghier, M. L. (2018). Categorical laterality indices in fMRI: a parallel with classic similarity indices. Brain Structure and Function, 224(3), 1377-1383. 
+
+Just checking that I understand the method. Essentially, starts by simulating all possible L and R combinations of voxels, from 0 to N, where N can be specified by user. I have used N = 200 in interests of time here.
+
+
+```{r makeAllLIs, include=TRUE, echo=TRUE}
+LIlist<-vector()
+N= 200 #n voxels
+for (i in 0:N){ #possible values for L hem
+  for (j in 0:N){ #possible values for R hem
+    LIlist<-c(LIlist,(i-j)/(i+j))
+  }
+}
+#Seghier shows situation with many breaks, which gives quite a complex distribution. However, with fewer breaks it looks more normal.
+hist(LIlist,breaks=5000)
+hist(LIlist,breaks=100)
+
+LIcode<-rep(2,length(LIlist))
+
+T <- .2 #cutoff found to give equal Ns in 3 groups
+LIcode[LIlist>-T]<-1#recode as 1 for those who are below -T
+LIcode[LIlist>T]<-3 #recode as 3 for those who are above T
+table(LIcode)
+
+```
+
+# LI and classic dissimilarity indices
+
+This sounds complicated, but is really quite straightforward.
+From the text: Given that LI distribution is symmetric, focus on positive LI values.
+
+Rearrange suprathreshold voxels in a homologous way between left and right ROI, so each selected voxel on left has a homologue on the right.
+Does not affect LI but allows voxel by voxel comparison.
+
+Can then say LH-RH = OR(LH,RH) - AND(LH,RH) #OR here is logical operator, not odds ratio!
+and 
+LH+RH = OR(LH,RH)+AND(LH,RH)
+
+so OR(LH,RH) is instance where L or R is active
+AND(LH,RH) is instance where L and R are active
+
+and because voxels are homologous
+OR(LH,RH) = max(LH,RH)
+AND(LH,RH) = min(LH,RH)
+
+Easier to understand with a concrete example.
+
+Suppose we have situation with 7 active voxels in the R, and 20 active voxels in the L. 
+Then OR(LH,RH) = 20 (because all the active voxels in R have homologue in L)
+AND(LH,RH)= 7  (ie voxels where both are active)
+
+This fits with the min and max definitions above.
+
+We can then relate this to the Sorensen-Dice (SD) index, which is
+
+SD = 2AND/(OR+AND)
+
+In our case this would be 14/27 = .5185
+
+and LI is 1-SD = .4814 (which is same as (L-R)/(L+R))
+
+So the LI can be related to classic similarity indices, if we assume maximal voxel-wise overlap after spatial rearrangement.
+Can relate to rich literature on classic indices in taxonomy.
+
+Sorensen-Dice index is special case of the kappa statistic that is used in reliability.
+Strong agreement or similarity between quantitites is commonly considered to be above .8
+
+This means that LI less than .2 corresponds to highly similar LH and RH.
+
+1-SD is not a proper distance metric because it does not possess property of triangle inequality. (I have no idea what this is!)
+But we can redefine it to convert LI to a proper distance.
+Here used Jaccard-Tanimoto index, which is a proper distance. (Again, I am taking this on trust!)
+
+JT is defined as AND/OR
+and LInew is 1-JT
+
+then the new LI is (LH-RH)/max(LH,RH)
+
+Works to give equal distributions with cutoff T of 1/3
+
+Can simulate this new LI just as before. This agrees with the account in the paper.
+
+```{r makeLInew,include=TRUE,echo=TRUE}
+LInew<-vector()
+N= 200 #n voxels
+for (i in 0:N){ #possible values for L hem
+  for (j in 0:N){ #possible values for R hem
+    LInew<-c(LInew,(i-j)/max(i,j))
+  }
+}
+hist(LInew,breaks=5000)
+hist(LInew,breaks=100)
+LIcode<-rep(1,length(LInew))
+T <- 1/3 #cutoff found to give equal Ns in 3 groups
+LIcode[LInew>-T]<-2
+LIcode[LInew>T]<-3
+table(LIcode)
+
+```
+Can also convert LI to LInew with (2*LI)/(1+abs(LI))
