@@ -1,0 +1,52 @@
+---
+title: "Virus example"
+output: html_notebook
+---
+Example from Bishop, D. V. M. (2020). How scientists can stop fooling themselves over statistics. Nature, 584, 9. doi:10.1038/d41586-020-02275-8
+
+Suppose 5% of the population is infected with a virus. We have 100 hospitals
+that each test 25 people, 100 hospitals that test 50 people and 100 that test 100 people. What percentage of hospitals will find no cases, and wrongly conclude the virus has disappeared? The answer is 28% of the hospitals testing 25 people, 8% of those testing 50 people and 1% of those testing 100. The average number of cases detected by the hospitals will be the same regardless of the number tested,
+but the range is much greater with a small sample.
+
+```{r binomdemo, echo=F}
+#Specify number for each hospital
+N1=25
+N2=50
+N3=100
+#This is a binomial question: we simulate 100,000 samples to get an accurate estimate of how many cases we will observe in the different sample sizes.
+x1<-rbinom(100000,N1,.05)
+x2<-rbinom(100000,N2,.05)
+x3<-rbinom(100000,N3,.05)
+
+print("We can check out what the first 10 samples looks like for each hospital")
+print("Hospital 1, 25 tested")
+x1[1:10]
+print("Hospital 2, 50 tested")
+x2[1:10]
+print("Hospital 3, 100 tested")
+x3[1:10]
+
+print("The average N positive cases is identical across hospitals:")
+print("Hospital 1, 25 tested")
+mean(x1)/N1
+print("Hospital 2, 50 tested")
+mean(x2)/N2
+print("Hospital 3, 100 tested")
+mean(x3)/N3
+
+print("Now see how many samples with zero cases in each set of 100,000")
+print("Hospital 1, 25 tested")
+w1<-length(which(x1==0))
+print(paste('Percentage with no positive tests = ',w1/1000,'%'))
+print("Hospital 1, 50 tested")
+w2<-length(which(x2==0))
+print(paste('Percentage with no positive tests = ',w2/1000,'%'))
+print("Hospital 1, 100 tested")
+w3<-length(which(x3==0))
+print(paste('Percentage with no positive tests = ',w3/1000,'%'))
+
+```
+
+
+
+```
