@@ -1,0 +1,229 @@
+---
+title: "Faux peer review script"
+output: html_notebook
+---
+
+```{r packages,message = FALSE}
+require(scrapeR)
+require(stringr)
+library(dplyr)
+library(ggplot2)
+library(yarrr)
+library(flextable)
+```
+Script by DVM Bishop, December 5 2020.
+1. Read in csv files created from Web of Science. Ideally this could be automated using the wosr package, but, despite having VPN on, access has been denied because of overuse, i.e. I have been throttled until end of 2020. I therefore exported records in chunks of 500 articles. 
+These chunks hard to read in because of commas in author field, so changed commas to semicolons in excel and bolted all files together. These files were created by searching Web of Science for all records in either Asian Journal of Psychiatry or Psychiatry Research.  This is overkill, because the basic stats on % of different document types is readily obtained within Web of Science by Document Type. 
+
+2. Scrape the web to find dates of submission and acceptance/appearance online. 
+It is something of a black art to find out how to locate the relevant information in a scraped chunk. Fortunately, I had previously done this for other Elsevier journals, and the format of information on the web is closely similar, at least for years after 2015.
+
+3. Compute the lag. It's actually so easy to do that in Excel (just by subtracting two dates you get N days) that I did that and then read file bck in. But you could of course do it in R.
+
+4. Make plots/tables. If you have already created the scraped files and want to skip directly to this step, then you can set makenew = 0, and the earlier steps are ignored.
+
+N.B. The webscraping, step 2, is fraught with problems - need to have VPN on, but even then, poor connectivity can make the whole thing crash and worst still lose contact with R so you have to restart. Sometimes it would hang and I had to force quit but I think that is now fixed. It does save an updated file after each volume so you can gradually get there.
+
+```{r read_WOS_csv}
+makenew<-1 #this blocks redoing all the scraping again
+if (makenew==1){
+    #Two options for thisjournal: comment out the one you don't want
+  thisjournal<-'psychiatry-research'
+  #thisjournal<-'asian-journal-of-psychiatry'
+
+  #Ensure the name of csv file has format as above
+  #read in the .csv file that was created from web of science.
+adat <- read.csv(paste0(thisjournal,'.csv'),stringsAsFactors=F)
+#make new compact file with just the information of interest.
+wantcols <- c('DT','AU','TI','PD','PY','VL','DI','UT','PM')
+#These are document type, authors, title, month of pub, year of pub, vol, doi, WOS code, Pubmed code
+w<-which(colnames(adat) %in% wantcols)
+adatshort <- adat[,w]
+
+#The next step just adds columns with dates, with a new name.
+adatshort$Scode <- NA #to hold code for URL for this paper
+adatshort$rec <-NA
+adatshort$rev <-NA
+adatshort$acc <-NA
+adatshort$ao <-NA
+adatshort$type <- NA #this reads in article type as defined in the journal website - should match DT, though different terminololgy may be used.
+}
+```
+
+```{r readlatest}
+readold<-0 #set to 1 if you already have started processing and want to read updated file
+if(readold==1){
+
+#If you have already scraped some values and need to restart, you can read the updated file but you then need to adjust volume numbers in the next chunk, so you don't start from the beginning again. Here I assume we previously save output as psychiatres_scraped10.csv but it could be another name
+adatshort<-read.csv('psychiatres_scraped10.csv',stringsAsFactors=F)
+}
+```
+The next chunk gets the URL for each article and scrapes off information about dates.
+```{r getURLs}
+makenew=1
+if(makenew==1){ #skip this step if you have already made the scraped file.
+
+baseurl <- paste0('https://www.sciencedirect.com/journal/',thisjournal,'/vol/')
+endbit <- '/suppl/C' 
+v1<-min(adatshort$VL,na.rm=T)
+v2<-max(adatshort$VL,na.rm=T)
+#you can override defaults here if you want to select specific journal range. Uncomment the next lines to do this
+# v1=242
+#v2=242
+
+for (vol in v1:v2){
+  myrows<-which(adatshort$VL==vol)
+  thisbit <-adatshort$DI[myrows]
+  myurl <- paste0(baseurl, vol,endbit)
+  myscrape=scrape(myurl) #from scrapeR routine - reads in html from a website
+  #I found it impossible to work directly with myscrape so write it to a text file - this also
+  #makes it easy to check what is in there by looking at it in word (need to save it first)
+  
+  sink('scraped.txt') #start writing to file so we can dump myscrape and read back in in usable format
+  print(myscrape)
+  sink() #stop writing to file
+  
+  mydata=scan('scraped.txt',what="\\", sep="\n") #reads as char (tried other ways and they did not work)
+  
+  #Even in this format, mydata needs handling with extreme care! Don't try to inspect it from R!
+  #If you try to process it as a regular text, R goes into suspended animation - I think because of all the backslashes etc that are in there.
+  myrow<- which(adatshort$VL == vol)
+  doilist <- adatshort$DI[myrow] #all dois for this volume
+  d1<-1
+  d2<-length(doilist) #d1 and d2 specify range - will usually take all dois, but for testing use shorter
+  
+  for (d in d1:d2){
+    x <- grep(doilist[d], mydata,ignore.case=T) #1st mention has all the information associated with DOI
+    if(length(x)>0){
+    shortdat<- mydata[x[1]] #part with information for this doi
+    mychunk<-''
+    i=0
+    while(mychunk==''){ #now check forward until we find a row with pii
+      i<-i+1
+      temp <- mydata[(x[1]+i)]
+      x2 <- grep('science/article/pii/S', temp,ignore.case=T)
+      mytypes <- grep('js-article-subtype',temp,ignore.case=T)
+      if (length(x2)>0)
+      {mychunk <-temp}
+      if (length(mytypes)>0) {mychunk2 <- temp}
+    }
+    newTxt <- unlist(strsplit(mychunk, split = "pii/")) #need to unlist to get at chars- splits into words
+    #this starts with the Scode that identifies url for this article
+    #Question is whether the format is always the same, in which case we can just use numerical indices to extract S.
+    #Can try that - if it doesn't work, should just crash when try to read URL.
+    
+    scode <- substr(newTxt[2],1,17)
+    
+    #Also find article type
+    mytype <- unlist(strsplit(mychunk2, split = "subtype"))
+    mytype <- substr(mytype[2],3,9)
+    
+    myurla <- paste0('https://www.sciencedirect.com/science/article/pii/',scode) #url for article
+    
+    myscrapea=scrape(myurla) #from scrapeR routine - reads in html from a website
+    #I found it impossible to work directly with myscrape so write it to a text file - this also
+    #makes it easy to check what is in there by looking at it in word (need to save it first)
+    
+    sink('scrapeda.txt') #start writing to file so we can dump myscrape and read back in in usable format
+    print(myscrapea)
+    sink() #stop writing to file
+    
+    mydataa=scan('scrapeda.txt',what="\\", sep="\n") #reads as char (tried other ways and they did not work)
+    
+    x <- grep('dates', mydataa,ignore.case=T)
+    
+    datefield <- mydataa[x[1]]
+    
+    dd<-unlist(strsplit(datefield,split=c(',',':')))
+    rec <- grep('Received', dd,ignore.case=T)
+    rev <- grep('Revised', dd,ignore.case=T)
+    acc <- grep('Accepted', dd,ignore.case=T)
+    ao <- grep('Available online', dd,ignore.case=T)
+    writerow<-myrows[d]
+    adatshort$Scode[writerow]<-scode
+    #Function to strip out unwanted stuff from the date
+    
+    stripstring <- function(mystring,mybad){
+      nudate <- str_remove(mystring, mybad)
+      nudate <- gsub('[\"]', '', nudate)
+      nudate <- gsub(':', '', nudate)
+      nudate <- gsub("{", "", nudate, fixed = TRUE)
+      nudate <- gsub("[", "", nudate, fixed = TRUE)
+      nudate <- gsub("]", "", nudate, fixed = TRUE)
+      return(nudate)
+    }
+    
+    
+    
+    
+    if(length(rec)>0){
+      recdate<-stripstring(dd[rec],'Received')
+      adatshort$rec[writerow]<-recdate[length(recdate)]} #take last value - sometimes rubbish gets in
+    if(length(rev)>0){revdate <-stripstring(dd[rev],'Revised')
+    adatshort$rev[writerow]<-revdate[length(revdate)]}
+    if(length(acc)>0){ accdate <- stripstring(dd[acc],'Accepted')
+    adatshort$acc[writerow]<-accdate[length(accdate)]}
+    if(length(ao)>0){ aodate <- stripstring(dd[ao],'dates')
+    aodate <- stripstring(aodate,'Available online') #can't get rid of curly bracket!
+    adatshort$ao[writerow]<-aodate[length(aodate)]}
+    adatshort$type[writerow] <- mytype
+    }
+  } #next article
+  
+  
+  myfilename<-paste0(thisjournal,'_scraped.csv')
+    write.csv(adatshort,myfilename,row.names=F) #may want to rename if rerunning this to avoid overwriting previous scraped file.
+  adatest<-adatshort[myrows,]
+} #next volume
+} #end if statement
+```
+
+It's very easy to compute lags in excel, so I did this when checking the file.  If there is an acceptance date, then this is used. If not, then time to appearing online is used. The column is called lag.
+
+Now read the file back in so we can plot key aspects.  
+
+```{r readlatest2}
+
+lagdat<-read.csv(myfilename,stringsAsFactors=F)
+
+```
+
+
+
+```{r makeplot}
+lagdat$shortcat<-as.character(lagdat$DT)
+w<-which(lagdat$shortcat %in% c('Correction','Editorial Material','Reprint'))
+lagdat$shortcat[w]<-'Other'
+lagdat$shortcat<-as.factor(lagdat$shortcat)
+t<-table(lagdat$PY,lagdat$shortcat)
+tdat<-data.frame(t)
+colnames(tdat)<-c("Year","Type","Freq")
+
+ 
+# Stacked
+ggplot(tdat, aes(fill=Type, y=Freq, x=Year)) + 
+    geom_bar(position="stack", stat="identity")
+
+#% stacked
+ggplot(tdat, aes(fill=Type, y=Freq, x=Year)) + 
+    geom_bar(position="fill", stat="identity")
+
+
+#Look at lag bands - just for the Letters category
+lagdat$lag1wkplus <- 2
+#default is value 2, ie over 2 weeks lag
+w<-which(lagdat$lag<14)
+lagdat$lag1wkplus[w]<-1 #1 corresponds to 1-2 weeks lag
+w<-which(lagdat$lag<7)
+lagdat$lag1wkplus[w]<-0 #0 corresponds to less than one week lag
+w<-which(is.na(lagdat$lag))
+lagdat$lag1wkplus[w]<-NA
+letters<-lagdat[lagdat$DT=='Letter',]
+tl<-table(letters$PY,letters$lag1wkplus)
+ptl<-prop.table(tl,1)
+ptl
+
+```
+
+We have actually scraped dates for all the articles in each journal so it is possible to compare lags for different article types - or to look for other categories with unusually fast acceptance times. I did not, however, do this.
+
