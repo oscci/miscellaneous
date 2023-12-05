@@ -1,0 +1,15 @@
+﻿row,NCT_number,Conditions,label,category,NgoodoutcomeT,Ntreated,NgoodoutcomeC,Ncontrol
+13,NCT01821352,Obesity,Obesity (NCT01821352),cosmetric,20,28,3,25
+19,NCT00738426,Body Contouring,Body Contouring (NCT00738426),cosmetic,21,35,2,32
+20,NCT00787189,Hearing Loss,Hearing Loss (NCT00787189),hearing loss,15,32,2,32
+21,NCT00926887,Pain,Pain (NCT00926887),pain,37,50,20,54
+22,NCT00927277,Pain,Pain (NCT00927277),pain,27,36,11,34
+23,NCT00929305,Musculoskeletal Pain,Musculoskeletal Pain (NCT00929305),pain,28,43,5,43
+24,NCT00929773,Chronic Pain,Chronic Pain (NCT00929773),pain,40,50,7,50
+25,NCT01292538,Body Contouring,Body Contouring (NCT01292538),cosmetic,24,35,6,32
+26,NCT01376037,Body Contouring,Body Contouring (NCT01376037),cosmetic,18,31,1,31
+27,NCT01702259,Cellulite,Cellulite (NCT01702259),cosmetic,19,34,3,34
+28,NCT01835743,Plantar Fasciitis,Plantar Fasciitis (NCT01835743),pain,23,37,4,32
+29,NCT01835756,Low Back Pain,Low Back Pain (NCT01835756),pain,27,31,9,31
+30,NCT02461225,Diabetic Peripheral Neuropathy,Diabetic Periph Neurop (NCT02461225),periph neuropathy,18,19,4,11
+31,NCT02538523,Low Back Pain,Low Back Pain (NCT02538523),pain,21,29,8,29
